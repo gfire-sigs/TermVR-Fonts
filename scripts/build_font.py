@@ -858,6 +858,16 @@ def build_single_font(
             dx = 0.0
             dy = descender - (nf_descent * sy)
             g_obj = draw_transformed_glyph(nf_gset, src_gname, sx=sx, sy=sy, dx=dx, dy=dy)
+        elif 0x276C <= u <= 0x2771:
+            # Prompt chevrons (❮ ❯ ❰ ❱): scale to match cap-height & prompt visual weight
+            gw = bb[2] - bb[0]
+            gh = bb[3] - bb[1]
+            g_cx = (bb[0] + bb[2]) / 2.0
+            g_cy = (bb[1] + bb[3]) / 2.0
+            s = min(440.0 / gw, 620.0 / gh) if gw > 0 and gh > 0 else (532.0 / nf_upm)
+            dx = (half_width / 2.0) - g_cx * s
+            dy = 340.0 - g_cy * s
+            g_obj = draw_transformed_glyph(nf_gset, src_gname, sx=s, sy=s, dx=dx, dy=dy)
         else:
             # Standard developer icon: preserve 1:1 aspect ratio and center optically at (300, 330)
             gw = bb[2] - bb[0]
@@ -878,24 +888,46 @@ def build_single_font(
 
         set_glyph(u, f"nf_{u:04X}", g_obj, half_width)
 
-    # Ensure standard 1-cell check & cross Dingbats (U+2714..U+2718) are always present for CLI test runners
-    dingbat_fallbacks = [
-        (0x2714, 0xF00C),  # ✔ Heavy Check Mark <- fa-check
-        (0x2715, 0xEAB8),  # ✕ Multiplication X <- cod-chrome_close
-        (0x2716, 0xF00D),  # ✖ Heavy Multiplication X <- fa-xmark
-        (0x2717, 0xEAB8),  # ✗ Ballot X <- cod-chrome_close
-        (0x2718, 0xF00D),  # ✘ Heavy Ballot X <- fa-xmark
-    ]
-    for dst_u, src_pua in dingbat_fallbacks:
-        if dst_u not in cmap and src_pua in nf_cmap:
-            src_gname = nf_cmap[src_pua]
+    # Ensure standard 1-cell check & cross Dingbats (U+2714..U+2718) are always present and visually distinct
+    base_gset = base_tt.getGlyphSet()
+    if 0x2714 not in cmap and 0xF00C in nf_cmap:
+        src_gname = nf_cmap[0xF00C]
+        bb = get_glyph_bbox(nf_tt, src_gname)
+        if bb is not None:
+            g_cx = (bb[0] + bb[2]) / 2.0
+            g_cy = (bb[1] + bb[3]) / 2.0
+            sx = 540.0 / nf_upm
+            sy = sx * 1.18
+            dx = (half_width / 2.0) - g_cx * sx - 350.0 * cjk_skew
+            dy = 350.0 - g_cy * sy
+            g_obj = draw_transformed_glyph(nf_gset, src_gname, sx=sx, shx=cjk_skew, sy=sy, dx=dx, dy=dy)
+            set_glyph(0x2714, "dingbat_2714", g_obj, half_width)
+
+    # Light crosses (✕ U+2715, ✗ U+2717) derived from IBM Plex Mono's crisp × (U+00D7)
+    for dst_u in (0x2715, 0x2717):
+        if dst_u not in cmap and 0x00D7 in cmap:
+            src_gname = cmap[0x00D7]
+            bb = get_glyph_bbox(base_tt, src_gname)
+            if bb is not None:
+                g_cx = (bb[0] + bb[2]) / 2.0
+                g_cy = (bb[1] + bb[3]) / 2.0
+                s = 1.16 if dst_u == 0x2715 else 1.24
+                dx = (half_width / 2.0) - g_cx * s
+                dy = 340.0 - g_cy * s
+                g_obj = draw_transformed_glyph(base_gset, src_gname, sx=s, sy=s, dx=dx, dy=dy)
+                set_glyph(dst_u, f"dingbat_{dst_u:04X}", g_obj, half_width)
+
+    # Heavy crosses (✖ U+2716, ✘ U+2718) from fa-xmark
+    for dst_u in (0x2716, 0x2718):
+        if dst_u not in cmap and 0xF00D in nf_cmap:
+            src_gname = nf_cmap[0xF00D]
             bb = get_glyph_bbox(nf_tt, src_gname)
             if bb is not None:
                 g_cx = (bb[0] + bb[2]) / 2.0
                 g_cy = (bb[1] + bb[3]) / 2.0
-                s = 460.0 / nf_upm
-                dx = (half_width / 2.0) - g_cx * s - 330.0 * cjk_skew
-                dy = 330.0 - g_cy * s
+                s = 500.0 / nf_upm
+                dx = (half_width / 2.0) - g_cx * s - 340.0 * cjk_skew
+                dy = 340.0 - g_cy * s
                 g_obj = draw_transformed_glyph(nf_gset, src_gname, sx=s, shx=cjk_skew, sy=s, dx=dx, dy=dy)
                 set_glyph(dst_u, f"dingbat_{dst_u:04X}", g_obj, half_width)
 

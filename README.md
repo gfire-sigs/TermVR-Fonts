@@ -3,6 +3,8 @@
 [![Build & Verify TermVR Fonts](https://github.com/gfire-sigs/TermVR-Fonts/actions/workflows/build.yml/badge.svg)](https://github.com/gfire-sigs/TermVR-Fonts/actions/workflows/build.yml)
 [![License: OFL-1.1](https://img.shields.io/badge/License-SIL%20OFL%201.1-blue.svg)](LICENSE)
 
+![TermVR Mono NF Showcase Banner](assets/termvr_banner.png)
+
 **`TermVR Mono`** and **`TermVR Mono NF`** are the dedicated default terminal font families engineered for **`gfire-sigs/TermVR`**.
 
 Built on a strict **1:2 (`600 : 1200` @ `1000 UPM`) integer cell grid**, TermVR Mono unifies **IBM Plex Mono**, **IBM Plex Math**, **IBM Plex Sans Hebrew**, **IBM Plex Sans KR**, **IBM Plex Sans JP**, **IBM Plex Sans TC** (KS X 1001 Korean Hanja supplement), **programmatically generated terminal grid geometry**, and **Nerd Fonts (`v3.5.1`)** into a single self-contained, zero-drift multilingual terminal typeface for VR/XR and desktop terminal emulators.
