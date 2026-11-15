@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "termvr-fonts"
+version = "1.0.0"
+description = "Deterministic 1:2 terminal grid font builder for TermVR Mono & TermVR Mono NF (IBM Plex Mono + Math + Hebrew + KR + JP + TC + Nerd Fonts)"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+authors = [
+    { name = "gfire-sigs" }
+]
+dependencies = [
+    "fonttools>=4.55.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/gfire-sigs/TermVR-Fonts"
+Repository = "https://github.com/gfire-sigs/TermVR-Fonts"
+Issues = "https://github.com/gfire-sigs/TermVR-Fonts/issues"
+
+[project.scripts]
+termvr-fetch-sources = "scripts.fetch_sources:main"
+termvr-build-font = "scripts.build_font:main"
+termvr-verify-font = "scripts.verify_font:main"
+
+[tool.setuptools.packages.find]
+include = ["scripts*"]

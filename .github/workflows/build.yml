@@ -1,0 +1,110 @@
+name: Build & Verify TermVR Fonts
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      all_weights:
+        description: "Build all 16 styles (Thin..Bold x Roman/Italic) instead of core 4 styles"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-verify:
+    name: Synthesize & Verify TermVR Mono / NF
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Cache pinned upstream font sources
+        uses: actions/cache@v4
+        with:
+          path: sources/
+          key: termvr-upstream-sources-${{ hashFiles('config/build_config.toml', 'scripts/fetch_sources.py') }}
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e .
+
+      - name: Fetch pinned upstream sources
+        run: |
+          if [ "${{ inputs.all_weights }}" = "true" ]; then
+            python scripts/fetch_sources.py --all-weights
+          else
+            python scripts/fetch_sources.py
+          fi
+
+      - name: Build TermVR Mono & TermVR Mono NF (.ttf + .ttc)
+        run: |
+          if [ "${{ inputs.all_weights }}" = "true" ]; then
+            python scripts/build_font.py --all-weights
+          else
+            python scripts/build_font.py
+          fi
+
+      - name: Run automated QA & verification suite
+        run: |
+          python scripts/verify_font.py
+
+      - name: Package release archives & SHA-256 checksums
+        run: |
+          mkdir -p release
+          cp LICENSE NOTICE.md README.md dist/ttf/
+          (
+            cd dist/ttf
+            zip -9 -q ../../release/TermVRMonoNF-TTF.zip TermVRMonoNF-*.ttf LICENSE NOTICE.md README.md
+            zip -9 -q ../../release/TermVRMono-TTF.zip TermVRMono-*.ttf LICENSE NOTICE.md README.md
+          )
+          rm -f dist/ttf/LICENSE dist/ttf/NOTICE.md dist/ttf/README.md
+          cp dist/ttc/TermVRMonoNF.ttc release/
+          cp dist/ttc/TermVRMono.ttc release/
+          (
+            cd release
+            sha256sum TermVRMonoNF-TTF.zip TermVRMono-TTF.zip TermVRMonoNF.ttc TermVRMono.ttc > SHA256SUMS.txt
+            cat SHA256SUMS.txt
+          )
+
+      - name: Upload built font artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: TermVR-Fonts-dist
+          path: |
+            release/TermVRMonoNF-TTF.zip
+            release/TermVRMono-TTF.zip
+            release/TermVRMonoNF.ttc
+            release/TermVRMono.ttc
+            release/SHA256SUMS.txt
+          if-no-files-found: error
+
+      - name: Publish GitHub Release on version tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          if gh release view "${TAG}" >/dev/null 2>&1; then
+            gh release upload "${TAG}" release/* --clobber
+          else
+            gh release create "${TAG}" release/* \
+              --title "TermVR Mono & TermVR Mono NF ${TAG}" \
+              --generate-notes
+          fi

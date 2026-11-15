@@ -1,0 +1,88 @@
+# TermVR Mono Reproducible Build Configuration
+# Licensed under SIL Open Font License 1.1
+
+[project]
+name = "TermVR Mono"
+nf_name = "TermVR Mono NF"
+family_slug = "TermVRMono"
+nf_family_slug = "TermVRMonoNF"
+version = "1.0.0"
+vendor = "GFIR"
+copyright = "Copyright (c) 2026 gfire-sigs (https://github.com/gfire-sigs/TermVR-Fonts). Portions Copyright (c) 2017-2026 IBM Corp. (IBM Plex Mono, Sans Hebrew, Sans KR, Sans JP, Sans TC, Math), Sandoll Inc., Bold Monday, and Copyright (c) 2014-2026 Ryan L McIntyre (Nerd Fonts)."
+license_url = "https://openfontlicense.org"
+repo_url = "https://github.com/gfire-sigs/TermVR-Fonts"
+# Fixed UNIX timestamp (2026-01-01T00:00:00Z) for reproducible font binaries
+reproducible_timestamp = 1767225600
+
+[metrics]
+# Base Units Per Em (matches IBM Plex family native UPM)
+upm = 1000
+# Strict 1:2 Terminal Grid (Halfwidth 1-cell = 600, Fullwidth 2-cell = 1200)
+half_width = 600
+full_width = 1200
+
+# Synchronized Vertical Metrics (hhea, OS/2 Typo, OS/2 Win)
+# Zero line_gap ensures vertical Box Drawing (U+2502) and Block Elements (U+2588) connect seamlessly across rows
+ascender = 900
+descender = -240
+line_gap = 0
+cap_height = 698
+x_height = 516
+italic_angle = -9.0
+
+[scaling]
+# Optical scaling & baseline harmonization for 600:1200 cell grid
+# KR Hangul syllables (native 1000x1000) -> scaled to fit 1200 fullwidth cell with balanced sidebearings
+kr_scale_x = 1.08
+kr_scale_y = 1.08
+kr_shift_y = -10
+
+# JP Kana & Kanji (native 1000x1000, drawn ~3% larger than KR by Sandoll/BoldMonday)
+jp_scale_x = 1.05
+jp_scale_y = 1.05
+jp_shift_y = -12
+
+# TC Hanja supplement (for Korean KS X 1001 Hanja missing in JP)
+tc_scale_x = 1.05
+tc_scale_y = 1.05
+tc_shift_y = -12
+
+# Hebrew consonant normalization into 600 halfwidth cell
+hebrew_max_fill_ratio = 0.85
+hebrew_scale_y = 1.00
+hebrew_italic_skew_deg = 7.0
+
+# Synthetic oblique skew angle (degrees) for scripts lacking native italics (Hebrew, KR, JP, TC, Math)
+cjk_italic_skew_deg = 9.0
+
+[options]
+# Include Nerd Fonts PUA + Powerline icons in TermVR Mono NF
+include_nerd_fonts = true
+# Include KS X 1001 Hanja supplement from IBM Plex Sans TC for codepoints missing in JP
+include_kr_hanja_supplement = true
+# Render subtle corner ticks on U+3000 (Ideographic Space) to prevent accidental fullwidth space bugs
+visualize_zenkaku_space = true
+# Remove monochrome U+274C / U+2705 so OS/engine color emoji fallback can trigger unless overridden
+strip_color_emoji_overrides = true
+
+[styles]
+# Core weights built by default (Regular, Bold, Italic, BoldItalic)
+core = ["Regular", "Bold", "Italic", "BoldItalic"]
+# Full weights available via --all-weights
+all = [
+    "Thin", "ThinItalic",
+    "ExtraLight", "ExtraLightItalic",
+    "Light", "LightItalic",
+    "Regular", "Italic",
+    "Text", "TextItalic",
+    "Medium", "MediumItalic",
+    "SemiBold", "SemiBoldItalic",
+    "Bold", "BoldItalic"
+]
+
+[upstream]
+ibm_plex_repo = "IBM/plex"
+ibm_plex_commit = "bc6a7e4b37634eb79785d59781893db63ee3edcb"
+nerd_fonts_repo = "ryanoasis/nerd-fonts"
+nerd_fonts_tag = "v3.5.1"
+nerd_fonts_asset = "NerdFontsSymbolsOnly.tar.xz"
