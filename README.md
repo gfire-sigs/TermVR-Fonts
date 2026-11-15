@@ -27,6 +27,9 @@ Built on a strict **1:2 (`600 : 1200` @ `1000 UPM`) integer cell grid**, TermVR 
 - **Optically Balanced Korean, Japanese & Hanja (`KR` + `JP` + `TC`)**:
   - `IBM Plex Sans KR` (`892` native width → `1200` cell, `92%` optical scale) and `IBM Plex Sans JP` (`1000` native width → `1200` cell, `90%` optical scale) are baseline-harmonized (`y_center ≈ +330`) so mixed Korean + Japanese + English lines share uniform visual density.
   - **Crucial safeguard**: `IBM Plex Sans JP`'s 105%-scaled proportional Latin/Greek/Cyrillic glyphs (`< U+2000`) are completely stripped so base `IBM Plex Mono` remains pure.
+- **Zero-Fallback Unicode NFD Support (macOS / APFS Filenames)**:
+  - All `67` modern Korean Hangul Conjoining Jamo (`U+1100`–`U+1112` @ `1200`, `U+1161`–`U+1175` @ `0`, `U+11A8`–`U+11C2` @ `0`), Japanese combining voice marks (`U+3099`, `U+309A`), and Greek combining diacritics (`U+0342`, `U+0345`) are directly mapped in `cmap` (`0` missing NFD constituents).
+  - Native OpenType `GSUB` `ccmp` ligature rules (`DFLT`, `hang`, `kana`, `hani`, `latn`, `cyrl`, `grek`) dynamically recompose Hangul NFD (`L+V+T` / `L+V` / `LV+T` across all `11,172` syllables), voiced Kana (`か + U+3099 → が`), and Latin/Greek/Cyrillic decomposed sequences so NFD filenames render pixel-identically to NFC with zero OS font fallback.
 - **Ambiguous-Width & Special Terminal Character Protections**:
   - `U+005C` (`\`) is strictly preserved as a true ASCII backslash (never overwritten with `¥` or `₩`).
   - `U+3000` (Ideographic / Zenkaku Space) has exact `1200` fullwidth advance with subtle corner ticks (`opacity ~25%` visual weight) to immediately expose accidental fullwidth spaces in code/CLI input.
@@ -103,7 +106,7 @@ flowchart LR
 
 ---
 
-## Measured Language & Character Coverage (`v1.0.0`)
+## Measured Language & Character Coverage (`v1.1.0`)
 
 Verified automatically by [`scripts/verify_font.py`](scripts/verify_font.py):
 
@@ -112,16 +115,16 @@ Verified automatically by [`scripts/verify_font.py`](scripts/verify_font.py):
 | **ASCII & Basic Latin** | `U+0020`–`U+007E` (`95` chars) | `95 / 95` | **100.0%** |
 | **Latin-1 / Extended-A / B / Additional** | Pan-European & Vietnamese | `935 / 935` | **100.0%** |
 | **Modern Korean Hangul Syllables** | `U+AC00`–`U+D7A3` (`11,172` chars) | `11,172 / 11,172` | **100.0%** |
-| **Korean Hangul Compatibility Jamo** | `U+3131`–`U+318E` (`94` chars) | `94 / 94` | **100.0%** |
+| **Korean Conjoining Jamo (NFD) + Compat Jamo** | `U+1100`–`U+11C2` (`67` + `2` fillers) & `U+3131`–`U+318E` | `163 / 163` + `GSUB ccmp` | **100.0% (Zero Fallback)** |
 | **Korean KS X 1001 Standard Hanja** | `4,888` EUC-KR Hanja (`JP` + `TC` + `NFKD`) | `4,865 / 4,888` | **99.5%** |
-| **Japanese Hiragana & Katakana** | Fullwidth + Halfwidth Kana (`U+3041`–`U+30FF`, `U+FF66`–`U+FF9F`) | `241 / 241` | **100.0%** |
+| **Japanese Hiragana & Katakana (+ NFD Voiced)** | Fullwidth + Halfwidth Kana + `U+3099`/`U+309A` + `GSUB ccmp` | `243 / 243` | **100.0%** |
 | **Japanese JIS X 0208 Kanji (Level 1 + 2)** | `6,355` Standard Japanese Kanji | `6,355 / 6,355` | **100.0%** |
 | **Total CJK Unified & Compatibility Ideographs** | `U+3400`–`U+4DBF`, `U+4E00`–`U+9FFF`, `U+F900`–`U+FAFF` | `13,401` ideographs | **JIS L1–L3 + KS X 1001** |
 | **Hebrew Alphabet, *Niqqud* & Presentation Forms** | `U+0590`–`U+05FF`, `U+FB1D`–`U+FB4F`, `U+20AA` | `133` codepoints | **100.0% Modern & Biblical** |
 | **Terminal Box, Block, Braille & Sextants** | `U+2500`–`U+259F`, `U+2800`–`U+28FF`, `U+1FB00`–`U+1FB3B` | `476 / 476` | **100.0%** |
 | **Nerd Fonts v3.5.1 PUA Icons** | Powerline, Devicons, Codicons, FontAwesome, Material (`v3.5.1`) | `10,615` icons | **100.0% (`SymbolsNerdFontMono`)** |
-| **Total per Style (`TermVR Mono NF`)** | — | **`41,753–41,773` glyphs / `41,976` `cmap` entries** | `63.7%` of OpenType `65,535` limit |
-| **Total per Style (`TermVR Mono`)** | — | **`31,144–31,164` glyphs / `31,367` `cmap` entries** | `47.6%` of OpenType `65,535` limit |
+| **Total per Style (`TermVR Mono NF`)** | — | **`41,824–41,844` glyphs / `42,028` `cmap` entries** | `63.8%` of OpenType `65,535` limit |
+| **Total per Style (`TermVR Mono`)** | — | **`31,215–31,235` glyphs / `31,419` `cmap` entries** | `47.7%` of OpenType `65,535` limit |
 
 ---
 
@@ -129,12 +132,12 @@ Verified automatically by [`scripts/verify_font.py`](scripts/verify_font.py):
 
 | Artifact | Styles Included | File Size | Recommended Use Case |
 | :--- | :--- | :---: | :--- |
-| **`TermVRMonoNF-Regular.ttf`** | `Regular` | `8.85 MB` | Single-weight VR/XR HUD & embedded terminal texture atlas |
-| **`TermVRMonoNF-{Bold,Italic,BoldItalic}.ttf`** | `Bold`, `Italic`, `BoldItalic` | `8.79–9.32 MB` each | Full 4-style desktop & VR terminal deployment |
-| **`TermVRMonoNF.ttc`** | `Regular`, `Bold`, `Italic`, `BoldItalic` (shared tables) | **`35.17 MB`** | All-in-one TrueType Collection bundle (`4` faces in `1` file) |
-| **`TermVRMono-Regular.ttf`** | `Regular` (without PUA icon bulk, keeps core prompt symbols) | `6.63 MB` | Lightweight CJK + Hebrew + Math terminal font |
-| **`TermVRMono-{Bold,Italic,BoldItalic}.ttf`** | `Bold`, `Italic`, `BoldItalic` | `6.57–7.10 MB` each | Full 4-style lightweight non-NF deployment |
-| **`TermVRMono.ttc`** | `Regular`, `Bold`, `Italic`, `BoldItalic` | **`26.50 MB`** | All-in-one non-NF TrueType Collection bundle |
+| **`TermVRMonoNF-Regular.ttf`** | `Regular` | `9.07 MB` | Single-weight VR/XR HUD & embedded terminal texture atlas |
+| **`TermVRMonoNF-{Bold,Italic,BoldItalic}.ttf`** | `Bold`, `Italic`, `BoldItalic` | `9.01–9.55 MB` each | Full 4-style desktop & VR terminal deployment |
+| **`TermVRMonoNF.ttc`** | `Regular`, `Bold`, `Italic`, `BoldItalic` (shared tables) | **`35.67 MB`** | All-in-one TrueType Collection bundle (`4` faces in `1` file) |
+| **`TermVRMono-Regular.ttf`** | `Regular` (without PUA icon bulk, keeps core prompt symbols) | `6.83 MB` | Lightweight CJK + Hebrew + Math terminal font |
+| **`TermVRMono-{Bold,Italic,BoldItalic}.ttf`** | `Bold`, `Italic`, `BoldItalic` | `6.77–7.30 MB` each | Full 4-style lightweight non-NF deployment |
+| **`TermVRMono.ttc`** | `Regular`, `Bold`, `Italic`, `BoldItalic` | **`26.92 MB`** | All-in-one non-NF TrueType Collection bundle |
 
 ---
 

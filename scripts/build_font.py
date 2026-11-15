@@ -267,6 +267,148 @@ def merge_hebrew_gpos_marks(
                 class_defs[dst_gname] = 3 if is_zero_width_codepoint(u) else 1
 
 
+def add_nfd_composition_gsub(
+    base_tt: TTFont,
+    cmap: dict[int, str],
+    glyph_order: list[str],
+) -> None:
+    """
+    Build OpenType GSUB `ccmp` LigatureSubst (LookupType 4) lookups so Unicode NFD
+    sequences render identically to NFC without triggering OS font fallback:
+      1. Hangul Conjoining Jamo: L + V + T -> LVT and L + V -> LV (all 11,172 syllables)
+      2. Hybrid Hangul LV + T -> LVT (all 10,773 combinations)
+      3. Japanese Kana + Combining Dakuten/Handakuten (U+3099/U+309A) -> Voiced Kana
+      4. Latin / Greek / Cyrillic Base + Combining Mark(s) -> Precomposed NFC
+    Attached to DFLT, hang, kana, hani, latn, cyrl, and grek script tags.
+    """
+    from fontTools.ttLib.tables import otTables
+
+    if "GSUB" not in base_tt:
+        return
+
+    glyph_id_map = {g: i for i, g in enumerate(glyph_order)}
+    gsub = base_tt["GSUB"].table
+
+    def build_ligature_lookup(lig_map: dict[str, list[tuple[tuple[str, ...], str]]]) -> otTables.Lookup | None:
+        if not lig_map:
+            return None
+        st = otTables.LigatureSubst()
+        st.Format = 1
+        st.ligatures = {}
+        # Sort first-glyph keys by glyph ID for valid OpenType Coverage ordering
+        for first_g in sorted(lig_map.keys(), key=lambda g: glyph_id_map[g]):
+            entries = sorted(lig_map[first_g], key=lambda item: (-len(item[0]), item[0]))
+            lig_objs = []
+            for comps, target_g in entries:
+                lig = otTables.Ligature()
+                lig.Component = list(comps)
+                lig.CompCount = len(comps) + 1
+                lig.LigGlyph = target_g
+                lig_objs.append(lig)
+            st.ligatures[first_g] = lig_objs
+        lookup = otTables.Lookup()
+        lookup.LookupType = 4
+        lookup.LookupFlag = 0
+        lookup.SubTable = [st]
+        lookup.SubTableCount = 1
+        return lookup
+
+    # 1. Hangul NFD: L (0x1100..0x1112) + V (0x1161..0x1175) [+ T (0x11A8..0x11C2)]
+    hangul_lvt_map: dict[str, list[tuple[tuple[str, ...], str]]] = {}
+    hangul_lv_t_map: dict[str, list[tuple[tuple[str, ...], str]]] = {}
+
+    for l_idx in range(19):
+        l_u = 0x1100 + l_idx
+        if l_u not in cmap:
+            continue
+        l_g = cmap[l_u]
+        l_entries: list[tuple[tuple[str, ...], str]] = []
+        for v_idx in range(21):
+            v_u = 0x1161 + v_idx
+            if v_u not in cmap:
+                continue
+            v_g = cmap[v_u]
+            lv_u = 0xAC00 + (l_idx * 21 + v_idx) * 28
+            if lv_u not in cmap:
+                continue
+            lv_g = cmap[lv_u]
+            # 3-component L + V + T -> LVT
+            for t_idx in range(1, 28):
+                t_u = 0x11A7 + t_idx
+                lvt_u = lv_u + t_idx
+                if t_u in cmap and lvt_u in cmap:
+                    t_g = cmap[t_u]
+                    lvt_g = cmap[lvt_u]
+                    l_entries.append(((v_g, t_g), lvt_g))
+                    hangul_lv_t_map.setdefault(lv_g, []).append(((t_g,), lvt_g))
+            # 2-component L + V -> LV
+            l_entries.append(((v_g,), lv_g))
+        if l_entries:
+            hangul_lvt_map[l_g] = l_entries
+
+    # 2. Kana + Latin/Greek/Cyrillic canonical NFD -> NFC compositions
+    general_nfd_map: dict[str, list[tuple[tuple[str, ...], str]]] = {}
+    for u in sorted(cmap):
+        # Skip Hangul syllables (handled above) and Hebrew Presentation Forms (handled by GPOS MarkToBase)
+        if 0xAC00 <= u <= 0xD7A3 or 0xFB1D <= u <= 0xFB4F or u > 0xFFFF:
+            continue
+        nfd = unicodedata.normalize("NFD", chr(u))
+        if len(nfd) < 2:
+            continue
+        if not all(ord(ch) in cmap for ch in nfd):
+            continue
+        first_g = cmap[ord(nfd[0])]
+        comps = tuple(cmap[ord(ch)] for ch in nfd[1:])
+        target_g = cmap[u]
+        if first_g == target_g:
+            continue
+        general_nfd_map.setdefault(first_g, []).append((comps, target_g))
+
+    new_lookup_indices: list[int] = []
+    for lig_map in (hangul_lvt_map, hangul_lv_t_map, general_nfd_map):
+        lk = build_ligature_lookup(lig_map)
+        if lk is not None:
+            idx = len(gsub.LookupList.Lookup)
+            gsub.LookupList.Lookup.append(lk)
+            gsub.LookupList.LookupCount = len(gsub.LookupList.Lookup)
+            new_lookup_indices.append(idx)
+
+    if not new_lookup_indices:
+        return
+
+    # Prepend NFD composition lookups to all existing 'ccmp' FeatureRecords
+    ccmp_indices: list[int] = []
+    for f_idx, frec in enumerate(gsub.FeatureList.FeatureRecord):
+        if frec.FeatureTag == "ccmp":
+            existing = [i for i in frec.Feature.LookupListIndex if i not in new_lookup_indices]
+            frec.Feature.LookupListIndex = list(new_lookup_indices) + existing
+            frec.Feature.LookupCount = len(frec.Feature.LookupListIndex)
+            ccmp_indices.append(f_idx)
+
+    # Ensure script records exist for DFLT, cyrl, grek, hang, hani, hebr, kana, latn
+    if ccmp_indices:
+        dflt_rec = next((s for s in gsub.ScriptList.ScriptRecord if s.ScriptTag == "DFLT"), None)
+        if dflt_rec is not None:
+            existing_scripts = {s.ScriptTag for s in gsub.ScriptList.ScriptRecord}
+            for tag in ("grek", "hang", "hani", "hebr", "kana"):
+                if tag not in existing_scripts:
+                    new_sr = copy.deepcopy(dflt_rec)
+                    new_sr.ScriptTag = tag
+                    gsub.ScriptList.ScriptRecord.append(new_sr)
+            gsub.ScriptList.ScriptRecord.sort(key=lambda s: s.ScriptTag)
+            gsub.ScriptList.ScriptCount = len(gsub.ScriptList.ScriptRecord)
+
+    # Register Hangul Jungseong/Jongseong & Kana/Greek combining marks in GDEF as Mark (3)
+    if "GDEF" in base_tt and base_tt["GDEF"].table.GlyphClassDef is not None:
+        class_defs = base_tt["GDEF"].table.GlyphClassDef.classDefs
+        for u in range(0x1100, 0x1113):
+            if u in cmap:
+                class_defs[cmap[u]] = 1
+        for u in list(range(0x1161, 0x1176)) + list(range(0x11A8, 0x11C3)) + [0x3099, 0x309A, 0x0342, 0x0345]:
+            if u in cmap:
+                class_defs[cmap[u]] = 3
+
+
 def configure_name_table(
     tt: TTFont,
     family_name: str,
@@ -728,7 +870,9 @@ def build_single_font(
                 g_obj = Glyph()
             set_glyph(u, f"kr_{u:04X}", g_obj, half_width)
 
-    # Map Conjoining Hangul Choseong (U+1100..U+1112, EAW=W) to Compatibility Jamo (U+3131..U+314E) if missing
+    # Populate ALL 67 modern Hangul Conjoining Jamo (U+1100..U+1112, U+1161..U+1175, U+11A8..U+11C2)
+    # as dedicated glyphs so NFD filenames never trigger fallback and Compatibility Jamo (U+3131..U+3163) remain untouched.
+    cur_gset = base_tt.getGlyphSet()
     choseong_to_compat = [
         0x3131, 0x3132, 0x3134, 0x3137, 0x3138, 0x3139, 0x3141, 0x3142, 0x3143,
         0x3145, 0x3146, 0x3147, 0x3148, 0x3149, 0x314A, 0x314B, 0x314C, 0x314D, 0x314E,
@@ -736,7 +880,30 @@ def build_single_font(
     for idx, compat_u in enumerate(choseong_to_compat):
         cho_u = 0x1100 + idx
         if cho_u not in cmap and compat_u in cmap:
-            cmap[cho_u] = cmap[compat_u]
+            g_obj = draw_transformed_glyph(cur_gset, cmap[compat_u])
+            set_glyph(cho_u, f"jamo_{cho_u:04X}", g_obj, full_width)
+
+    # Jungseong medial vowels (U+1161..U+1175 -> 0x314F..0x3163, wcwidth == 0)
+    for idx in range(21):
+        jung_u = 0x1161 + idx
+        compat_u = 0x314F + idx
+        if jung_u not in cmap and compat_u in cmap:
+            g_obj = draw_transformed_glyph(cur_gset, cmap[compat_u], sx=0.65, sy=0.80, dx=-520.0, dy=60.0)
+            set_glyph(jung_u, f"jamo_{jung_u:04X}", g_obj, 0)
+
+    # Jongseong trailing consonants (U+11A8..U+11C2, wcwidth == 0)
+    jong_compat = [u for u in range(0x3131, 0x314F) if u not in (0x3138, 0x3143, 0x3149)]
+    for idx, compat_u in enumerate(jong_compat):
+        jong_u = 0x11A8 + idx
+        if jong_u not in cmap and compat_u in cmap:
+            g_obj = draw_transformed_glyph(cur_gset, cmap[compat_u], sx=0.60, sy=0.55, dx=-960.0, dy=-120.0)
+            set_glyph(jong_u, f"jamo_{jong_u:04X}", g_obj, 0)
+
+    # Hangul Jamo Fillers (U+115F Choseong Filler = 1200, U+1160 Jungseong Filler = 0)
+    if 0x115F not in cmap:
+        set_glyph(0x115F, "jamo_115F", Glyph(), full_width)
+    if 0x1160 not in cmap:
+        set_glyph(0x1160, "jamo_1160", Glyph(), 0)
 
     # 6. Inject Layer 6: IBM Plex Sans JP (Hiragana, Katakana, 14,800+ Kanji, CJK Punctuation)
     jp_path = SOURCES_DIR / "plex-sans-jp" / f"IBMPlexSansJP-{base_weight}.ttf"
@@ -760,7 +927,9 @@ def build_single_font(
 
         target_w = get_target_cell_width(u, half_width, full_width)
         if target_w == 0:
-            g_obj = draw_transformed_glyph(jp_gset, src_gname, sx=1.0, shx=cjk_skew, sy=1.0, dx=0.0, dy=0.0)
+            # Shift U+3099/U+309A fallback left into preceding 2-cell kana top-right corner
+            dx = -340.0 if u in (0x3099, 0x309A) else 0.0
+            g_obj = draw_transformed_glyph(jp_gset, src_gname, sx=1.0, shx=cjk_skew, sy=1.0, dx=dx, dy=0.0)
             set_glyph(u, f"jp_{u:04X}", g_obj, 0)
         elif target_w == full_width:
             orig_w = jp_hmtx[src_gname][0] or 1000
@@ -931,8 +1100,23 @@ def build_single_font(
                 g_obj = draw_transformed_glyph(nf_gset, src_gname, sx=s, shx=cjk_skew, sy=s, dx=dx, dy=dy)
                 set_glyph(dst_u, f"dingbat_{dst_u:04X}", g_obj, half_width)
 
-    # 9. Finalize glyph order, cmap, metrics, and name tables
+    # Ensure Greek NFD combining marks (U+0342 Perispomeni, U+0345 Ypogegrammeni) exist in cmap
+    cur_gset_final = base_tt.getGlyphSet()
+    if 0x0342 not in cmap and 0x0303 in cmap:
+        g_obj = draw_transformed_glyph(cur_gset_final, cmap[0x0303])
+        set_glyph(0x0342, "comb_0342", g_obj, 0)
+    if 0x0345 not in cmap and 0x03B9 in cmap:
+        iota_bb = get_glyph_bbox(base_tt, cmap[0x03B9])
+        if iota_bb is not None:
+            g_cx = (iota_bb[0] + iota_bb[2]) / 2.0
+            g_obj = draw_transformed_glyph(
+                cur_gset_final, cmap[0x03B9], sx=0.45, sy=0.42, dx=-half_width / 2.0 - g_cx * 0.45, dy=-210.0
+            )
+            set_glyph(0x0345, "comb_0345", g_obj, 0)
+
+    # 9. Finalize glyph order, GSUB NFD->NFC compositions, cmap, metrics, and name tables
     base_tt.setGlyphOrder(glyph_order)
+    add_nfd_composition_gsub(base_tt, cmap, glyph_order)
     configure_cmap_tables(base_tt, cmap)
     set_style_flags(base_tt, style, cfg)
 

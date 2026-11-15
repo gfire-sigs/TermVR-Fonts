@@ -156,6 +156,38 @@ def verify_ttfont(tt: TTFont, label: str, is_nf: bool) -> list[str]:
     if "GPOS" not in tt or not any(s.ScriptTag == "hebr" for s in tt["GPOS"].table.ScriptList.ScriptRecord):
         errors.append(f"{label}: GPOS table missing 'hebr' script record for Hebrew MarkToBase")
 
+    # 6b. Verify complete NFD constituent cmap coverage & GSUB ccmp Hangul/Kana/Latin composition
+    import unicodedata
+
+    missing_nfd: list[str] = []
+    for u in sorted(cmap):
+        if u > 0xFFFF:
+            continue
+        nfd = unicodedata.normalize("NFD", chr(u))
+        if len(nfd) >= 2:
+            for ch in nfd:
+                if ord(ch) not in cmap:
+                    missing_nfd.append(f"U+{ord(ch):04X}")
+    if missing_nfd:
+        errors.append(f"{label}: missing NFD constituent codepoints in cmap: {sorted(set(missing_nfd))[:10]}")
+
+    for u in range(0x1100, 0x1113):
+        if u not in cmap or hmtx[cmap[u]][0] != 1200:
+            errors.append(f"{label}: Hangul Choseong U+{u:04X} missing or not 1200 width")
+            break
+    for u in list(range(0x1161, 0x1176)) + list(range(0x11A8, 0x11C3)) + [0x3099, 0x309A, 0x0342, 0x0345]:
+        if u not in cmap or hmtx[cmap[u]][0] != 0:
+            errors.append(f"{label}: NFD combining character U+{u:04X} missing or not 0 width")
+            break
+
+    if "GSUB" not in tt:
+        errors.append(f"{label}: GSUB table missing")
+    else:
+        gsub_scripts = {s.ScriptTag for s in tt["GSUB"].table.ScriptList.ScriptRecord}
+        for req_tag in ("DFLT", "hang", "kana", "hani", "latn", "cyrl", "grek"):
+            if req_tag not in gsub_scripts:
+                errors.append(f"{label}: GSUB missing '{req_tag}' script record for NFD ccmp composition")
+
     # 7. Coverage calculations
     ascii_cov = sum(1 for u in range(0x0020, 0x007F) if u in cmap)
     hangul_cov = sum(1 for u in range(0xAC00, 0xD7A4) if u in cmap)
